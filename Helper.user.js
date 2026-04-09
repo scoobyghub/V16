@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         TMN TDS Auto v16.01
+// @name         TMN TDS Auto v16.02
 // @namespace    http://tampermonkey.net/
-// @version      16.01
-// @description  v16.01 — Whitelist, protection timer, draggable UI, 5-layer OC/DTM dedup, Telegram alerts
+// @version      16.02
+// @description  v16.02 — Whitelist, protection timer, draggable UI, 5-layer OC/DTM dedup, Telegram alerts
 // @author       You
 // @match        *://www.tmn2010.net/login.aspx*
 // @match        *://www.tmn2010.net/authenticated/*
@@ -245,7 +245,7 @@
         document.body.appendChild(loginOverlay);
       }
       console.log("[TMN AutoLogin]", message);
-      loginOverlay.textContent = `TMN TDS AutoLogin v16.01\n${message}`;
+      loginOverlay.textContent = `TMN TDS AutoLogin v16.02\n${message}`;
     }
 
     function clearTimers() {
@@ -4163,11 +4163,19 @@ let logoutNotificationSent = false;
     // Step 1a: Send crusher cars to crusher
     // Gated on: Auto Crusher toggle on, crusherOwned not explicitly false
     if (state.autoCrusher && state.crusherOwned !== false) {
-      // Hard prerequisite: the crusher button must exist on the page.
+      // Detect crusher ownership: the button is ALWAYS present on the garage page,
+      // but is rendered with the `disabled` attribute when the player doesn't own a crusher.
+      // We must check both: element exists AND it's not disabled.
       const crusherBtnCheck = document.getElementById('ctl00_main_btnSendtoCrusher');
-      if (!crusherBtnCheck) {
-        // Button absent → definitely no crusher. Permanently disable.
-        disableCrusherOwnership('crusher button missing from garage page');
+      const crusherBtnUsable = crusherBtnCheck &&
+                               !crusherBtnCheck.disabled &&
+                               !crusherBtnCheck.hasAttribute('disabled');
+      if (!crusherBtnUsable) {
+        // Button absent OR disabled → definitely no crusher. Permanently disable.
+        const reason = !crusherBtnCheck
+          ? 'crusher button missing from garage page'
+          : 'crusher button present but disabled (no crusher owned)';
+        disableCrusherOwnership(reason);
       } else {
         // POST-ERROR RECOVERY: read the message element from the previous attempt.
         // Three distinct error conditions to handle:
@@ -4483,7 +4491,7 @@ let logoutNotificationSent = false;
     wrapper.innerHTML = `
       <div class="card">
         <div class="card-header d-flex justify-content-between align-items-center" id="tmn-drag-handle" style="cursor: grab;">
-          <strong>TMN TDS Auto v16.01</strong>
+          <strong>TMN TDS Auto v16.02</strong>
           <div>
             <button id="tmn-lock-btn" class="btn btn-sm btn-outline-secondary me-1" title="Lock/Unlock position">ð</button>
             <button id="tmn-settings-btn" class="btn btn-sm btn-outline-secondary me-1" title="Settings">
@@ -4723,6 +4731,12 @@ let logoutNotificationSent = false;
                     <button type="button" id="tmn-carcat-reset" class="btn btn-sm btn-outline-secondary mt-2" style="font-size: 0.75rem;">Reset to defaults</button>
                   </div>
                 </div>
+
+                <div class="mt-3">
+                  <small class="text-muted d-block mb-2">Crusher ownership: <span id="tmn-crusher-status" style="font-weight: 600;">${state.crusherOwned === false ? '<span style="color:#ef4444;">Not owned</span>' : state.crusherOwned === true ? '<span style="color:#10b981;">Owned</span>' : '<span style="color:#9ca3af;">Unknown</span>'}</span></small>
+                  <button type="button" id="tmn-crusher-reset" class="btn btn-sm btn-outline-warning" style="font-size: 0.75rem;">Reset crusher status</button>
+                  <small class="text-muted d-block mt-1">Use this after buying a crusher so Auto Crusher can be re-enabled.</small>
+                </div>
               </div>
 
               <hr style="border-color:#1f2937">
@@ -4891,6 +4905,18 @@ let logoutNotificationSent = false;
     shadowRoot.querySelector("#tmn-auto-health").checked = state.autoHealth;
     shadowRoot.querySelector("#tmn-auto-garage").checked = state.autoGarage;
     shadowRoot.querySelector("#tmn-auto-crusher").checked = state.autoCrusher;
+    // Grey out the Auto Crusher toggle if we've confirmed there's no crusher.
+    // The user must use "Reset crusher status" in settings (e.g. after buying one).
+    if (state.crusherOwned === false) {
+      const crusherCb = shadowRoot.querySelector("#tmn-auto-crusher");
+      crusherCb.checked = false;
+      crusherCb.disabled = true;
+      const crusherLabel = shadowRoot.querySelector('label[for="tmn-auto-crusher"]');
+      if (crusherLabel) {
+        crusherLabel.style.color = '#6b7280';
+        crusherLabel.title = 'Crusher not owned — use "Reset crusher status" in settings if you buy one';
+      }
+    }
     shadowRoot.querySelector("#tmn-auto-oc").checked = state.autoOC;
     shadowRoot.querySelector("#tmn-auto-dtm").checked = state.autoDTM;
     shadowRoot.querySelector("#tmn-notify-ocdtm-ready").checked = state.notifyOCDTMReady;
@@ -4957,6 +4983,12 @@ let logoutNotificationSent = false;
       updateStatus('Auto Garage ' + (state.autoGarage ? 'Enabled' : 'Disabled'));
     });
     shadowRoot.querySelector("#tmn-auto-crusher").addEventListener('change', e => {
+      // Defence in depth: reject re-enable if we've confirmed no crusher
+      if (e.target.checked && state.crusherOwned === false) {
+        e.target.checked = false;
+        updateStatus('Crusher not owned — use "Reset crusher status" first');
+        return;
+      }
       state.autoCrusher = e.target.checked;
       saveState();
       updateStatus('Auto Crusher ' + (state.autoCrusher ? 'Enabled' : 'Disabled'));
@@ -4998,6 +5030,31 @@ let logoutNotificationSent = false;
           radios.forEach(r => { r.checked = (r.value === car.defaultCategory); });
         });
         updateStatus('Car categories reset to defaults');
+      });
+    }
+
+    // Reset crusher ownership status — clears the "no crusher" lockout so the script
+    // will re-detect on the next garage cycle. Use after buying a crusher.
+    const crusherResetBtn = shadowRoot.querySelector('#tmn-crusher-reset');
+    if (crusherResetBtn) {
+      crusherResetBtn.addEventListener('click', () => {
+        state.crusherOwned = null;
+        saveState();
+        localStorage.removeItem(LS_CRUSHER_LOOP_COUNT);
+        // Re-enable the Auto Crusher checkbox
+        const cb = shadowRoot.querySelector('#tmn-auto-crusher');
+        if (cb) {
+          cb.disabled = false;
+          const lbl = shadowRoot.querySelector('label[for="tmn-auto-crusher"]');
+          if (lbl) {
+            lbl.style.color = '';
+            lbl.title = '';
+          }
+        }
+        // Update the status display
+        const statusEl = shadowRoot.querySelector('#tmn-crusher-status');
+        if (statusEl) statusEl.innerHTML = '<span style="color:#9ca3af;">Unknown</span>';
+        updateStatus('Crusher status reset — will re-detect on next garage visit');
       });
     }
     shadowRoot.querySelector("#tmn-auto-oc").addEventListener('change', e => {
@@ -5991,7 +6048,7 @@ async function mainLoop() {
 
     // Show appropriate status based on tab status
     if (tabManager.isMasterTab) {
-      updateStatus("TMN TDS Auto v16.01 loaded - Master tab (single tab mode)");
+      updateStatus("TMN TDS Auto v16.02 loaded - Master tab (single tab mode)");
     } else {
       updateStatus("⏸ Secondary tab - close this tab or it will remain inactive");
     }

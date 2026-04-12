@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         TMN TDS Auto v16.04
+// @name         TMN TDS Auto v16.07
 // @namespace    http://tampermonkey.net/
-// @version      16.04
-// @description  v16.04 — Whitelist, protection timer, draggable UI, 5-layer OC/DTM dedup, Telegram alerts
+// @version      16.07
+// @description  v16.07 — Whitelist, protection timer, draggable UI, 5-layer OC/DTM dedup, Telegram alerts
 // @author       You
 // @match        *://www.tmn2010.net/login.aspx*
 // @match        *://www.tmn2010.net/authenticated/*

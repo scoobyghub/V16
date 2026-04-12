@@ -19,7 +19,7 @@
 // @downloadURL  https://raw.githubusercontent.com/scoobyghub/v16/refs/heads/main/Helper.user.js
 // ==/UserScript==
 
-/* AUTO-CONFIRM - Same as working alooo sabzi.txt */
+
 (function () {
     try {
         const script = document.createElement('script');
@@ -3981,7 +3981,16 @@ let logoutNotificationSent = false;
     { name: 'Lamborghini Gallardo',  defaultCategory: 'Crush' },
     { name: 'Ferrari Purosangue',    defaultCategory: 'Crush' },
     { name: 'Mercedes-Benz G-Wagon', defaultCategory: 'Crush' },
-    { name: 'Tesla Cybertruck',      defaultCategory: 'Crush' }
+    { name: 'Tesla Cybertruck',      defaultCategory: 'Crush' },
+    // High-value cars — listed so users can recategorise, default to Sell
+    { name: 'Dodge Challenger Hellcat', defaultCategory: 'Sell' },
+    { name: 'Porsche 911 Turbo',     defaultCategory: 'Sell' },
+    { name: 'Audi A8',               defaultCategory: 'Sell' },
+    { name: 'Audi R8',               defaultCategory: 'Sell' },
+    { name: 'Mercedes-Benz SLK 55',  defaultCategory: 'Sell' },
+    { name: 'BMW X5M',               defaultCategory: 'Sell' },
+    { name: 'Chevrolet Corvette',    defaultCategory: 'Sell' },
+    { name: 'Porsche Cayenne',       defaultCategory: 'Sell' }
   ];
 
   // Look up a car's effective category, honouring user overrides in state.carCategories.

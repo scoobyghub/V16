@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         TMN TDS Auto v16.03
+// @name         TMN TDS Auto v16.04
 // @namespace    http://tampermonkey.net/
-// @version      16.03
-// @description  v16.03 — Whitelist, protection timer, draggable UI, 5-layer OC/DTM dedup, Telegram alerts
+// @version      16.04
+// @description  v16.04 — Whitelist, protection timer, draggable UI, 5-layer OC/DTM dedup, Telegram alerts
 // @author       You
 // @match        *://www.tmn2010.net/login.aspx*
 // @match        *://www.tmn2010.net/authenticated/*
@@ -245,7 +245,7 @@
         document.body.appendChild(loginOverlay);
       }
       console.log("[TMN AutoLogin]", message);
-      loginOverlay.textContent = `TMN TDS AutoLogin v16.03\n${message}`;
+      loginOverlay.textContent = `TMN TDS AutoLogin v16.04\n${message}`;
     }
 
     function clearTimers() {
@@ -4513,7 +4513,7 @@ let logoutNotificationSent = false;
     wrapper.innerHTML = `
       <div class="card">
         <div class="card-header d-flex justify-content-between align-items-center" id="tmn-drag-handle" style="cursor: grab;">
-          <strong>TMN TDS Auto v16.03</strong>
+          <strong>TMN TDS Auto v16.04</strong>
           <div>
             <button id="tmn-lock-btn" class="btn btn-sm btn-outline-secondary me-1" title="Lock/Unlock position">ð</button>
             <button id="tmn-settings-btn" class="btn btn-sm btn-outline-secondary me-1" title="Settings">
@@ -6070,7 +6070,7 @@ async function mainLoop() {
 
     // Show appropriate status based on tab status
     if (tabManager.isMasterTab) {
-      updateStatus("TMN TDS Auto v16.03 loaded - Master tab (single tab mode)");
+      updateStatus("TMN TDS Auto v16.04 loaded - Master tab (single tab mode)");
     } else {
       updateStatus("⏸ Secondary tab - close this tab or it will remain inactive");
     }

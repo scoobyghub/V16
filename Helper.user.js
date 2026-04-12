@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         TMN TDS Auto v16.04
+// @name         TMN TDS Auto v16.07
 // @namespace    http://tampermonkey.net/
-// @version      16.04
-// @description  v16.04 — Whitelist, protection timer, draggable UI, 5-layer OC/DTM dedup, Telegram alerts
+// @version      16.07
+// @description  v16.07 — Whitelist, protection timer, draggable UI, 5-layer OC/DTM dedup, Telegram alerts
 // @author       You
 // @match        *://www.tmn2010.net/login.aspx*
 // @match        *://www.tmn2010.net/authenticated/*
@@ -245,7 +245,7 @@
         document.body.appendChild(loginOverlay);
       }
       console.log("[TMN AutoLogin]", message);
-      loginOverlay.textContent = `TMN TDS AutoLogin v16.04\n${message}`;
+      loginOverlay.textContent = `TMN TDS AutoLogin v16.07\n${message}`;
     }
 
     function clearTimers() {
@@ -4186,6 +4186,15 @@ let logoutNotificationSent = false;
           : 'crusher button present but disabled (no crusher owned)';
         disableCrusherOwnership(reason);
       } else {
+        // Button is enabled → we own a crusher. Lock this in permanently.
+        // Once confirmed, ownership is never revoked (you can't lose a crusher in TMN),
+        // which means the loop-safety counter and unknown-error logic become inert.
+        if (state.crusherOwned !== true) {
+          state.crusherOwned = true;
+          saveState();
+          localStorage.removeItem(LS_CRUSHER_LOOP_COUNT);
+          console.log('[TMN] Crusher ownership confirmed — locked in permanently');
+        }
         // POST-ERROR RECOVERY: read the message element from the previous attempt.
         // Three distinct error conditions to handle:
         //   1. "you can only crush cars that you stole yourself" → cooldown this model name
@@ -4236,22 +4245,36 @@ let logoutNotificationSent = false;
               );
             } else if (msgText) {
               // Some text is present that isn't a known crusher error.
-              // ONLY treat it as a problem if the element has the TMNErrorFont class —
-              // that's how TMN marks actual error messages. Success confirmations,
-              // travel messages, etc. also appear in #ctl00_lblMsg but without this class.
-              const isActualError = errorMsg && errorMsg.classList.contains('TMNErrorFont');
-              if (isActualError) {
+              // Only count it toward the safety limit if BOTH:
+              //   (a) the element has the TMNErrorFont class (how TMN marks real errors), AND
+              //   (b) the text mentions "crusher" (so unrelated errors from other parts
+              //       of the page — hospital, jail, travel, etc. — don't trip the counter)
+              // This is conservative on purpose: false positives here lead to falsely
+              // disabling Auto Crusher on accounts that genuinely own one.
+              const isErrorClass = errorMsg && errorMsg.classList.contains('TMNErrorFont');
+              const mentionsCrusher = /crusher/i.test(msgText);
+              const isActualCrusherError = isErrorClass && mentionsCrusher;
+              // ONCE OWNERSHIP IS CONFIRMED, never disable. The loop counter only exists
+              // to catch a missed no-crusher state on first run; if we've already
+              // confirmed the player owns one, unknown errors are just transient (multi-car
+              // submissions, weird page state, etc.) and should be ignored.
+              const ownershipConfirmed = state.crusherOwned === true;
+              if (isActualCrusherError && !ownershipConfirmed) {
                 const currentCount = parseInt(localStorage.getItem(LS_CRUSHER_LOOP_COUNT) || '0', 10) + 1;
                 localStorage.setItem(LS_CRUSHER_LOOP_COUNT, String(currentCount));
-                console.log(`[TMN] Crusher attempt returned unknown error (${currentCount}/${CRUSHER_LOOP_SAFETY_LIMIT}): "${msgText.substring(0, 120)}"`);
+                console.log(`[TMN] Crusher attempt returned unknown crusher error (${currentCount}/${CRUSHER_LOOP_SAFETY_LIMIT}): "${msgText.substring(0, 200)}"`);
                 if (currentCount >= CRUSHER_LOOP_SAFETY_LIMIT) {
                   disableCrusherOwnership(`${CRUSHER_LOOP_SAFETY_LIMIT} consecutive failed crush attempts — assuming no crusher`);
                   localStorage.removeItem(LS_PENDING_CRUSH_NAME);
                   return;
                 }
+              } else if (isActualCrusherError && ownershipConfirmed) {
+                // Logged for diagnostics but no action — ownership is locked in
+                console.log(`[TMN] Crusher error after confirmed ownership (ignored): "${msgText.substring(0, 200)}"`);
+                localStorage.removeItem(LS_CRUSHER_LOOP_COUNT);
               } else {
-                // Non-error text (e.g. success confirmation) → treat as success
-                console.log(`[TMN] Crusher: non-error message after crush attempt (treating as success): "${msgText.substring(0, 80)}"`);
+                // Non-crusher error or non-error text → treat as success for our purposes
+                console.log(`[TMN] Crusher: ignoring non-crusher message after attempt (treating as success): "${msgText.substring(0, 120)}" [errorClass=${isErrorClass}, mentionsCrusher=${mentionsCrusher}]`);
                 localStorage.removeItem(LS_CRUSHER_LOOP_COUNT);
                 if (state.crusherOwned !== true) {
                   state.crusherOwned = true;
@@ -4308,32 +4331,48 @@ let logoutNotificationSent = false;
           }
 
           if (chosenRow) {
-            // Uncheck everything else first to guarantee a single-car submission
-            carRows.forEach(r => {
-              const cb = r.querySelector('input[type="checkbox"]');
-              if (cb) cb.checked = false;
-            });
+            // Uncheck EVERYTHING in the entire car table first — not just rows we know
+            // about, but the Check All header checkbox and any stray checkboxes too.
+            // UnderCoverLover reported seeing 3 boxes ticked when the script intended 1,
+            // so we belt-and-braces this.
+            const allTableCheckboxes = table.querySelectorAll('input[type="checkbox"]');
+            allTableCheckboxes.forEach(cb => { cb.checked = false; });
+
             const cb = chosenRow.querySelector('input[type="checkbox"]');
             if (cb) cb.checked = true;
-            // Stash the model name so the next garage visit can detect failure
-            try {
-              localStorage.setItem(LS_PENDING_CRUSH_NAME, chosenName);
-            } catch (e) {
-              console.warn('[TMN] Failed to stash pending crush name:', e);
+
+            // Verify we have EXACTLY one ticked checkbox before clicking. If the count
+            // is wrong, abort and log loudly — this prevents a multi-car submission
+            // which would trigger TMN's "you can only crush cars that you stole yourself"
+            // error if any of the unintended cars happened to be gifted.
+            const tickedCount = Array.from(table.querySelectorAll('input[type="checkbox"]'))
+              .filter(c => c.checked).length;
+            if (tickedCount !== 1) {
+              console.warn(`[TMN] ⚠️ Crusher safety abort — expected exactly 1 ticked checkbox, found ${tickedCount}. Skipping this crush cycle.`);
+              updateStatus(`Crusher: aborted (${tickedCount} boxes ticked, expected 1)`);
+              // Don't stash a pending name, don't click, just bail out to Step 1b
+              localStorage.removeItem(LS_PENDING_CRUSH_NAME);
+            } else {
+              // Stash the model name so the next garage visit can detect failure
+              try {
+                localStorage.setItem(LS_PENDING_CRUSH_NAME, chosenName);
+              } catch (e) {
+                console.warn('[TMN] Failed to stash pending crush name:', e);
+              }
+              updateStatus(`Sending ${chosenName} to crusher...`);
+              console.log(`[TMN] Sending 1 car to crusher: ${chosenName}`);
+              crusherBtnCheck.click();
+              setTimeout(() => {
+                state.isPerformingAction = false;
+                state.currentAction = '';
+                state.lastGarage = Date.now();
+                state.needsRefresh = true;
+                GM_setValue('actionStartTime', 0);
+                saveState();
+                window.location.href = '/authenticated/crimes.aspx?' + Date.now();
+              }, randomDelay(DELAYS.normal));
+              return;
             }
-            updateStatus(`Sending ${chosenName} to crusher...`);
-            console.log(`[TMN] Sending 1 car to crusher: ${chosenName}`);
-            crusherBtnCheck.click();
-            setTimeout(() => {
-              state.isPerformingAction = false;
-              state.currentAction = '';
-              state.lastGarage = Date.now();
-              state.needsRefresh = true;
-              GM_setValue('actionStartTime', 0);
-              saveState();
-              window.location.href = '/authenticated/crimes.aspx?' + Date.now();
-            }, randomDelay(DELAYS.normal));
-            return;
           }
         }
       }
@@ -4413,13 +4452,21 @@ let logoutNotificationSent = false;
       const checkbox = row.querySelector('input[type="checkbox"]');
 
       if (checkbox && isVIPCar(carName) && damage > 0) {
-        // Uncheck all first
-        carRows.forEach(r => {
-          const cb = r.querySelector('input[type="checkbox"]');
-          if (cb) cb.checked = false;
-        });
+        // Uncheck EVERY checkbox in the table (including Check All header) first
+        const allTableCheckboxes = table.querySelectorAll('input[type="checkbox"]');
+        allTableCheckboxes.forEach(cb => { cb.checked = false; });
 
         checkbox.checked = true;
+
+        // Verify exactly one ticked before clicking — same defence as Step 1a
+        const tickedCount = Array.from(table.querySelectorAll('input[type="checkbox"]'))
+          .filter(c => c.checked).length;
+        if (tickedCount !== 1) {
+          console.warn(`[TMN] ⚠️ Repair safety abort — expected 1 ticked checkbox, found ${tickedCount}. Skipping repair this cycle.`);
+          updateStatus(`Repair: aborted (${tickedCount} boxes ticked, expected 1)`);
+          continue;
+        }
+
         const repairBtn = document.getElementById('ctl00_main_btnRepair');
         if (repairBtn) {
           updateStatus(`Repairing VIP car: ${carName} (${damage}% damage)`);
@@ -4513,7 +4560,7 @@ let logoutNotificationSent = false;
     wrapper.innerHTML = `
       <div class="card">
         <div class="card-header d-flex justify-content-between align-items-center" id="tmn-drag-handle" style="cursor: grab;">
-          <strong>TMN TDS Auto v16.04</strong>
+          <strong>TMN TDS Auto v16.07</strong>
           <div>
             <button id="tmn-lock-btn" class="btn btn-sm btn-outline-secondary me-1" title="Lock/Unlock position">ð</button>
             <button id="tmn-settings-btn" class="btn btn-sm btn-outline-secondary me-1" title="Settings">
@@ -6070,7 +6117,7 @@ async function mainLoop() {
 
     // Show appropriate status based on tab status
     if (tabManager.isMasterTab) {
-      updateStatus("TMN TDS Auto v16.04 loaded - Master tab (single tab mode)");
+      updateStatus("TMN TDS Auto v16.07 loaded - Master tab (single tab mode)");
     } else {
       updateStatus("⏸ Secondary tab - close this tab or it will remain inactive");
     }

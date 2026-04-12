@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         TMN TDS Auto v16.02
+// @name         TMN TDS Auto v16.03
 // @namespace    http://tampermonkey.net/
-// @version      16.02
-// @description  v16.02 — Whitelist, protection timer, draggable UI, 5-layer OC/DTM dedup, Telegram alerts
+// @version      16.03
+// @description  v16.03 — Whitelist, protection timer, draggable UI, 5-layer OC/DTM dedup, Telegram alerts
 // @author       You
 // @match        *://www.tmn2010.net/login.aspx*
 // @match        *://www.tmn2010.net/authenticated/*
@@ -245,7 +245,7 @@
         document.body.appendChild(loginOverlay);
       }
       console.log("[TMN AutoLogin]", message);
-      loginOverlay.textContent = `TMN TDS AutoLogin v16.02\n${message}`;
+      loginOverlay.textContent = `TMN TDS AutoLogin v16.03\n${message}`;
     }
 
     function clearTimers() {
@@ -4226,15 +4226,28 @@ let logoutNotificationSent = false;
                 `This car was gifted, not stolen. Skipping this model for ${minsCooldown} min (will be sold instead).`
               );
             } else if (msgText) {
-              // Some OTHER error occurred after a crush attempt — likely "no crusher"
-              // or similar. Bump the safety counter; trip the flag if we've hit the limit.
-              const currentCount = parseInt(localStorage.getItem(LS_CRUSHER_LOOP_COUNT) || '0', 10) + 1;
-              localStorage.setItem(LS_CRUSHER_LOOP_COUNT, String(currentCount));
-              console.log(`[TMN] Crusher attempt returned unknown error (${currentCount}/${CRUSHER_LOOP_SAFETY_LIMIT}): "${msgText.substring(0, 120)}"`);
-              if (currentCount >= CRUSHER_LOOP_SAFETY_LIMIT) {
-                disableCrusherOwnership(`${CRUSHER_LOOP_SAFETY_LIMIT} consecutive failed crush attempts — assuming no crusher`);
-                localStorage.removeItem(LS_PENDING_CRUSH_NAME);
-                return;
+              // Some text is present that isn't a known crusher error.
+              // ONLY treat it as a problem if the element has the TMNErrorFont class —
+              // that's how TMN marks actual error messages. Success confirmations,
+              // travel messages, etc. also appear in #ctl00_lblMsg but without this class.
+              const isActualError = errorMsg && errorMsg.classList.contains('TMNErrorFont');
+              if (isActualError) {
+                const currentCount = parseInt(localStorage.getItem(LS_CRUSHER_LOOP_COUNT) || '0', 10) + 1;
+                localStorage.setItem(LS_CRUSHER_LOOP_COUNT, String(currentCount));
+                console.log(`[TMN] Crusher attempt returned unknown error (${currentCount}/${CRUSHER_LOOP_SAFETY_LIMIT}): "${msgText.substring(0, 120)}"`);
+                if (currentCount >= CRUSHER_LOOP_SAFETY_LIMIT) {
+                  disableCrusherOwnership(`${CRUSHER_LOOP_SAFETY_LIMIT} consecutive failed crush attempts — assuming no crusher`);
+                  localStorage.removeItem(LS_PENDING_CRUSH_NAME);
+                  return;
+                }
+              } else {
+                // Non-error text (e.g. success confirmation) → treat as success
+                console.log(`[TMN] Crusher: non-error message after crush attempt (treating as success): "${msgText.substring(0, 80)}"`);
+                localStorage.removeItem(LS_CRUSHER_LOOP_COUNT);
+                if (state.crusherOwned !== true) {
+                  state.crusherOwned = true;
+                  saveState();
+                }
               }
             } else {
               // No error text → assume success, reset loop counter, confirm ownership
@@ -4491,7 +4504,7 @@ let logoutNotificationSent = false;
     wrapper.innerHTML = `
       <div class="card">
         <div class="card-header d-flex justify-content-between align-items-center" id="tmn-drag-handle" style="cursor: grab;">
-          <strong>TMN TDS Auto v16.02</strong>
+          <strong>TMN TDS Auto v16.03</strong>
           <div>
             <button id="tmn-lock-btn" class="btn btn-sm btn-outline-secondary me-1" title="Lock/Unlock position">ð</button>
             <button id="tmn-settings-btn" class="btn btn-sm btn-outline-secondary me-1" title="Settings">
@@ -6048,7 +6061,7 @@ async function mainLoop() {
 
     // Show appropriate status based on tab status
     if (tabManager.isMasterTab) {
-      updateStatus("TMN TDS Auto v16.02 loaded - Master tab (single tab mode)");
+      updateStatus("TMN TDS Auto v16.03 loaded - Master tab (single tab mode)");
     } else {
       updateStatus("⏸ Secondary tab - close this tab or it will remain inactive");
     }

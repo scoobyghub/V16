@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         TMN TDS Auto v16.07
+// @name         TMN TDS Auto v16.08
 // @namespace    http://tampermonkey.net/
-// @version      16.07
-// @description  v16.07 — Whitelist, protection timer, draggable UI, 5-layer OC/DTM dedup, Telegram alerts
+// @version      16.08
+// @description  v16.08 — Whitelist, protection timer, draggable UI, 5-layer OC/DTM dedup, Telegram alerts
 // @author       You
 // @match        *://www.tmn2010.net/login.aspx*
 // @match        *://www.tmn2010.net/authenticated/*
@@ -245,7 +245,7 @@
         document.body.appendChild(loginOverlay);
       }
       console.log("[TMN AutoLogin]", message);
-      loginOverlay.textContent = `TMN TDS AutoLogin v16.07\n${message}`;
+      loginOverlay.textContent = `TMN TDS AutoLogin v16.08\n${message}`;
     }
 
     function clearTimers() {
@@ -4165,6 +4165,31 @@ let logoutNotificationSent = false;
       return;
     }
 
+    // BLOCKING-ERROR GATE: if the page is showing a TMN error that isn't one of our
+    // known crusher errors (gifted-car rejection or queue-full), something unrelated
+    // is preventing actions — jail, hospital, no-action-allowed, etc. Abort the whole
+    // garage cycle so we don't tick checkboxes, click buttons, or accidentally trip
+    // error-recovery logic. The next cycle will re-check after the blocker clears.
+    {
+      const errEl = document.getElementById('ctl00_lblMsg');
+      const errTxt = (errEl && errEl.classList.contains('TMNErrorFont'))
+        ? (errEl.textContent || '').trim()
+        : '';
+      const isKnownCrusherError = errTxt && (CRUSHER_ERROR_REGEX.test(errTxt) || CRUSHER_FULL_REGEX.test(errTxt));
+      if (errTxt && !isKnownCrusherError) {
+        console.log(`[TMN] Garage: blocking error on page, aborting cycle: "${errTxt.substring(0, 160)}"`);
+        updateStatus(`Garage blocked: ${errTxt.substring(0, 60)}`);
+        // Clear any stale pending crush so we don't misinterpret it next time
+        localStorage.removeItem(LS_PENDING_CRUSH_NAME);
+        state.lastGarage = now;
+        state.isPerformingAction = false;
+        state.currentAction = '';
+        GM_setValue('actionStartTime', 0);
+        saveState();
+        return;
+      }
+    }
+
     state.isPerformingAction = true;
     state.currentAction = 'garage';
     GM_setValue('actionStartTime', now);
@@ -4560,7 +4585,7 @@ let logoutNotificationSent = false;
     wrapper.innerHTML = `
       <div class="card">
         <div class="card-header d-flex justify-content-between align-items-center" id="tmn-drag-handle" style="cursor: grab;">
-          <strong>TMN TDS Auto v16.07</strong>
+          <strong>TMN TDS Auto v16.08</strong>
           <div>
             <button id="tmn-lock-btn" class="btn btn-sm btn-outline-secondary me-1" title="Lock/Unlock position">ð</button>
             <button id="tmn-settings-btn" class="btn btn-sm btn-outline-secondary me-1" title="Settings">
@@ -6117,7 +6142,7 @@ async function mainLoop() {
 
     // Show appropriate status based on tab status
     if (tabManager.isMasterTab) {
-      updateStatus("TMN TDS Auto v16.07 loaded - Master tab (single tab mode)");
+      updateStatus("TMN TDS Auto v16.08 loaded - Master tab (single tab mode)");
     } else {
       updateStatus("⏸ Secondary tab - close this tab or it will remain inactive");
     }
